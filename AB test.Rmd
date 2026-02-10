@@ -1,0 +1,168 @@
+---
+title: "AB test"
+author: "Yiran Han"
+date: "2026-02-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+# =========================
+# A/B Test Analysis (Step 1)
+# Read -> Clean -> Metrics -> Sanity Checks
+# =========================
+
+library(tidyverse)
+
+# 1) Read data -------------------------------------------------------------
+# Replace with your local path (e.g., "data/ab_test_data.csv")
+df <- read_csv("AB_Test_Results.csv",
+               show_col_types = FALSE)
+
+# Quick inspection
+glimpse(df)
+summary(df)
+```
+
+
+```{r}
+# 2) Basic cleaning / validation ------------------------------------------
+# Standardize column names just in case
+df <- df %>%
+  rename_with(~ str_to_upper(.x))
+
+# Expected columns: USER_ID, VARIANT_NAME, REVENUE
+stopifnot(all(c("USER_ID", "VARIANT_NAME", "REVENUE") %in% names(df)))
+
+# Check missing
+df %>%
+  summarise(
+    n_rows = n(),
+    miss_user = sum(is.na(USER_ID)),
+    miss_variant = sum(is.na(VARIANT_NAME)),
+    miss_revenue = sum(is.na(REVENUE))
+  )
+
+# Check duplicates: Ideally 1 row per user
+dup_users <- df %>%
+  count(USER_ID) %>%
+  filter(n > 1)
+
+n_dup_users <- nrow(dup_users)
+message("Duplicate USER_ID count: ", n_dup_users)
+
+# If duplicates exist, decide rule:
+# Option A (common): aggregate revenue per user within variant
+# Option B: keep first row
+# We'll do a safe approach: aggregate per user within variant.
+df_user <- df %>%
+  group_by(USER_ID, VARIANT_NAME) %>%
+  summarise(REVENUE = sum(REVENUE, na.rm = TRUE), .groups = "drop")
+
+# Due to the presence of multiple records per user, the data was aggregated at the user level prior to analysis.
+# Revenue was summed for each user within the assigned experimental group to ensure that all metrics were evaluated consistently at the individual user level.
+```
+
+```{r}
+# 3) Feature engineering: conversion --------------------------------------
+df_user <- df_user %>%
+  mutate(
+    VARIANT_NAME = as.factor(VARIANT_NAME),
+    converted = as.integer(REVENUE > 0)
+  )
+
+# 4) Sanity checks ---------------------------------------------------------
+# 4.1 Group size and SRM (Sample Ratio Mismatch)
+group_counts <- df_user %>%
+  count(VARIANT_NAME, name = "n")
+
+print(group_counts)
+
+# Chi-square goodness-of-fit for 50/50 split (works for 2 groups)
+# H0: expected ratio is 0.5 vs 0.5
+obs <- group_counts$n
+exp <- rep(sum(obs) / length(obs), length(obs))
+srm_test <- chisq.test(x = obs, p = rep(1/length(obs), length(obs)))
+
+print(srm_test)
+
+# A chi-square goodness-of-fit test was conducted to verify that users were evenly split between the control and variant groups.
+
+# The observed group sizes were 3,931 users in the control group and 3,934 users in the variant group. The test did not indicate any statistically significant deviation from the expected 50/50 split, suggesting that the experiment randomization was functioning as intended.
+```
+```{r}
+# 4.2 Revenue distribution quick check
+df_user %>%
+  summarise(
+    mean_rev = mean(REVENUE),
+    median_rev = median(REVENUE),
+    p95_rev = quantile(REVENUE, 0.95),
+    max_rev = max(REVENUE)
+  ) %>% print()
+```
+
+```{r}
+# 5) Metric table (Primary + Secondary) -----------------------------------
+metrics <- df_user %>%
+  group_by(VARIANT_NAME) %>%
+  summarise(
+    n_users = n(),
+    conversions = sum(converted),
+    conversion_rate = mean(converted),
+    arpu = mean(REVENUE),
+    revenue_per_converted = ifelse(sum(converted) > 0,
+                                   mean(REVENUE[converted == 1]),
+                                   NA_real_),
+    .groups = "drop"
+  )
+
+print(metrics)
+
+# The control group exhibited a higher conversion rate (2.04%) compared to the variant group (1.80%). This corresponds to an approximate relative decrease of 11.8% in conversion for the variant.
+
+# Similarly, the average revenue per user (ARPU) was substantially higher in the control group (0.164) than in the variant group (0.089), indicating a notable decline in revenue performance under the variant.
+
+# Both primary and secondary metrics consistently suggest that the variant underperforms the control version.
+```
+
+```{r}
+# 6) Statistical tests -----------------------------------------------------
+# 6.1 Primary: Conversion rate difference (two-proportion test)
+# prop.test expects counts and totals
+prop_res <- with(metrics,
+                 prop.test(x = conversions, n = n_users, correct = FALSE))
+print(prop_res)
+
+# Although the point estimate suggests a lower conversion rate for the variant, the difference is not statistically significant, and the confidence interval includes zero.
+```
+
+```{r}
+# 6.2 Secondary: ARPU difference (Welch t-test)
+t_res <- t.test(REVENUE ~ VARIANT_NAME, data = df_user)
+print(t_res)
+
+# The ARPU in the control group was higher than in the variant group; however, the difference was not statistically significant due to high variance in user-level revenue.
+```
+
+```{r}
+# 7) Effect sizes (lift) ---------------------------------------------------
+# Compute absolute and relative lift for conversion + ARPU
+# Assumes two levels: control and variant (or similar)
+# If your factor levels differ, adjust the indexing below.
+metrics_wide <- metrics %>%
+  select(VARIANT_NAME, conversion_rate, arpu) %>%
+  pivot_wider(names_from = VARIANT_NAME,
+              values_from = c(conversion_rate, arpu))
+
+print(metrics_wide)
+```
+
+```{r}
+write_csv(df_user, "ab_test_user_level.csv")
+```
+
+```{r}
+
+```
+
