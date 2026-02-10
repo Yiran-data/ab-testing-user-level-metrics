@@ -16,7 +16,7 @@ output:
 library(tidyverse)
 
 # 1) Read data -------------------------------------------------------------
-# Replace with your local path (e.g., "data/ab_test_data.csv")
+# Replace with local path
 df <- read_csv("AB_Test_Results.csv",
                show_col_types = FALSE)
 
@@ -159,10 +159,8 @@ print(metrics_wide)
 ```
 
 ```{r}
+# Export user-level aggregated dataset for downstream analysis and visualization
 write_csv(df_user, "ab_test_user_level.csv")
 ```
 
-```{r}
-
-```
 
