@@ -123,18 +123,19 @@ This logic mirrors the user-level aggregation applied in the R analysis and refl
 ## 📂 Repository Structure
 
 ```text
-ab-test-user-level-analysis/
+ab-testing-user-level-metrics/
+├─ data/
+│  ├─ raw/
+│  │  └─ AB_Test_Results.csv          # Original experiment-level data
+│  └─ processed/
+│     └─ ab_test_user_level.csv       # User-level aggregated dataset
 │
-├── data/
-│   └── ab_test_user_level.csv
+├─ PowerBI/
+│  └─ AB_Test_User_Conversion_Revenue.pbix
 │
-├── analysis/
-│   └── ab_test_analysis.Rmd
-│
-├── powerbi/
-│   └── ab_test_dashboard.pbix
-│
-└── README.md
+├─ AB test.Rmd                        # End-to-end A/B test analysis in R
+├─ README.md
+└─ .gitignore
 ```
 
 ## 📌 Key Takeaways
